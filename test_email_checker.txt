@@ -1,0 +1,124 @@
+import os
+import tempfile
+import unittest
+from unittest.mock import patch, MagicMock
+
+from email_checker import (
+    is_valid_email,
+    find_emails,
+    find_emails_in_file,
+    find_emails_on_page,
+)
+
+class TestIsValidEmail(unittest.TestCase):
+    def test_valid_emails(self):
+        valid = [
+            "user@example.com",
+            "user.name+tag@sub.example.co.uk",
+            "u_1@mail.ru",
+            "a-b@my-domain.org",
+            "USER@EXAMPLE.COM",
+            "  user@example.com  ",
+        ]
+        for email in valid:
+            with self.subTest(email=email):
+                self.assertTrue(is_valid_email(email), f"{email!r} должен быть валидным")
+
+    def test_invalid_emails(self):
+        invalid = [
+            "",
+            "user",
+            "user@",
+            "@example.com",
+            "user@example",
+            "user@.com",
+            "user@example.c",
+            "user@@example.com",
+            "user example@mail.com",
+            "user@example .com",
+            "user@exa_mple.com",
+            "user@example.com.",
+            "пользователь@example.com",
+            "user@example.com extra",
+            "user@example.commmи",
+        ]
+        for email in invalid:
+            with self.subTest(email=email):
+                self.assertFalse(is_valid_email(email), f"{email!r} не должен быть валидным")
+
+    def test_non_string_input(self):
+        self.assertFalse(is_valid_email(None))
+        self.assertFalse(is_valid_email(123))
+
+
+class TestFindEmails(unittest.TestCase):
+    def test_find_multiple(self):
+        text = (
+            "Контакты: first@mail.ru, второй — second.last@sub.example.org. "
+            "Также пишите на third+tag@domain.co.uk."
+        )
+        result = find_emails(text)
+        self.assertEqual(
+            result,
+            ["first@mail.ru", "second.last@sub.example.org", "third+tag@domain.co.uk"],
+        )
+
+    def test_no_emails(self):
+        self.assertEqual(find_emails("Нет тут почты, совсем нет."), [])
+
+    def test_does_not_capture_glued_words(self):
+        text = "abcemail@mail.ru abc"
+        self.assertEqual(find_emails(text), ["abcemail@mail.ru"])
+
+    def test_ignores_trailing_dot(self):
+        text = "Пишите: user@example.com."
+        self.assertEqual(find_emails(text), ["user@example.com"])
+
+    def test_none_input(self):
+        self.assertEqual(find_emails(None), [])
+
+
+class TestFindEmailsInFile(unittest.TestCase):
+    def setUp(self):
+        fd, self.path = tempfile.mkstemp(suffix=".txt", text=True)
+        os.close(fd)
+        with open(self.path, "w", encoding="utf-8") as f:
+            f.write("a@b.com\nc.d@e.org\nне email\n")
+
+    def tearDown(self):
+        os.remove(self.path)
+
+    def test_find_in_file(self):
+        self.assertEqual(
+            find_emails_in_file(self.path),
+            ["a@b.com", "c.d@e.org"],
+        )
+
+    def test_missing_file(self):
+        with self.assertRaises(FileNotFoundError):
+            find_emails_in_file("/nonexistent/path/file.txt")
+
+class TestFindEmailsOnPage(unittest.TestCase):
+    @patch("email_checker.requests.get")
+    def test_find_on_page(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.text = "<html>Пишите: admin@site.ru, info@site.ru</html>"
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        result = find_emails_on_page("https://example.com")
+        self.assertEqual(result, ["admin@site.ru", "info@site.ru"])
+        mock_get.assert_called_once()
+
+    @patch("email_checker.requests.get")
+    def test_http_error(self, mock_get):
+        import requests
+        mock_response = MagicMock()
+        mock_response.raise_for_status.side_effect = requests.HTTPError("404")
+        mock_get.return_value = mock_response
+
+        with self.assertRaises(requests.HTTPError):
+            find_emails_on_page("https://example.com/missing")
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

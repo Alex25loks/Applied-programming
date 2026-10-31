@@ -1,0 +1,71 @@
+import re
+import requests
+
+EMAIL_PATTERN = (
+    r'(?<![A-Za-z0-9._%+\-])'
+    r'[A-Za-z0-9._%+\-]+'
+    r'@'
+    r'[A-Za-z0-9.\-]+'
+    r'\.[A-Za-z]{2,}'
+    r'(?![A-Za-z0-9\-])'
+)
+
+EMAIL_REGEX = re.compile(EMAIL_PATTERN)
+
+def is_valid_email(text: str) -> bool:
+    if not isinstance(text, str):
+        return False
+    return EMAIL_REGEX.fullmatch(text.strip()) is not None
+
+def find_emails(text: str) -> list[str]:
+    if not isinstance(text, str):
+        return []
+    return EMAIL_REGEX.findall(text)
+
+def find_emails_in_file(path: str, encoding: str = "utf-8") -> list[str]:
+    with open(path, "r", encoding=encoding, errors="ignore") as f:
+        return find_emails(f.read())
+
+
+def find_emails_on_page(url: str, timeout: float = 10.0) -> list[str]:
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; EmailChecker/1.0)"}
+    response = requests.get(url, headers=headers, timeout=timeout)
+    response.raise_for_status()
+    return find_emails(response.text)
+
+def interactive_mode():
+    print("Выберите режим:")
+    print("  1 — проверить одну строку")
+    print("  2 — найти e-mail в файле")
+    print("  3 — найти e-mail на веб-странице")
+    choice = input("Введите номер: ").strip()
+
+    if choice == "1":
+        value = input("Введите e-mail: ").strip()
+        if is_valid_email(value):
+            print(f"V '{value}' — корректный e-mail")
+        else:
+            print(f"X '{value}' — некорректный e-mail")
+    elif choice == "2":
+        path = input("Путь к файлу: ").strip()
+        try:
+            emails = find_emails_in_file(path)
+            print(f"Найдено {len(emails)} e-mail:")
+            for e in dict.fromkeys(emails):
+                print(f"  {e}")
+        except FileNotFoundError:
+            print("Файл не найден")
+    elif choice == "3":
+        url = input("URL страницы: ").strip()
+        try:
+            emails = find_emails_on_page(url)
+            print(f"Найдено {len(emails)} e-mail:")
+            for e in dict.fromkeys(emails):
+                print(f"  {e}")
+        except requests.RequestException as exc:
+            print(f"Ошибка загрузки: {exc}")
+    else:
+        print("Неизвестный режим")
+
+if __name__ == "__main__":
+    interactive_mode()
